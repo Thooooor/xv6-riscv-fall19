@@ -3,11 +3,16 @@
 #include "kernel/fcntl.h"
 #include "assert.h"
 
-#define MAXARGS 10  // 限制参数最大数量
+/*
+    limit the max length of parameters, commands, buff
+*/
+#define MAXARGS 10
 #define MAXCMDS 10
 #define MAXBUF 100
 
-// Parsed command representationss
+/* 
+    Parsed command representations
+*/
 #define EXEC  0
 #define REDIR 1
 #define PIPE  2
@@ -15,6 +20,10 @@
 char whitespace[] = " \t\r\n\v";
 char symbols[] = "<|>";
 
+/*
+    struct of different type of command
+    inspired by sh.c
+*/
 struct cmd {
   int type;
 };
@@ -40,6 +49,11 @@ struct pipecmd {
   struct cmd *right;
 };
 
+/*
+    not allowed to use m a l l o c()
+    use global parameters instead
+    index and cmd_index record the use of space
+*/
 struct cmd mycmd[MAXCMDS];
 struct pipecmd mypipecmd[MAXCMDS];
 struct execcmd myexeccmd[MAXCMDS];
@@ -55,6 +69,7 @@ void runcmd(struct cmd *cmd);
 struct cmd *pipecmd(struct cmd *left, struct cmd *right);
 struct cmd *execcmd(void);
 struct cmd *redircmd(struct cmd *subcmd, char *file, int type, int mode, int fd);
+
 /*
     parse cmd -> parse pipe -> parse exec -> parse redirs
 */
@@ -63,6 +78,9 @@ struct cmd *parsepipe(char **ps, char *es);
 struct cmd *parseexec();
 struct cmd *parseredirs();
 
+/*
+    util functions
+*/
 void init_index();
 char *copy(char *s, char *es);
 char* mystrncpy(char *s, const char *t, int n);
@@ -72,6 +90,7 @@ int gettoken(char **ps, char *es, char **q, char **eq);
 
 
 /*
+    main process:
     get cmd -> cd? -> fork -> parse cmd -> run cmd -> get cmd
                    -> cd
 */
@@ -116,7 +135,6 @@ void runcmd(struct cmd *cmd) {
     struct redircmd *rcmd;
 
     if (cmd == 0) exit(0);
-    // fprintf(2, "cmd type: %d\n", cmd->type);
 
     switch(cmd->type) {
         default:
@@ -177,19 +195,17 @@ struct cmd* parsecmd(char *s) {
 }
 
 /*
-    left_cmd | right_cmd
-    left_cmd -> parse exec -> pipecmd(cmd, )
+    pipe cmd? -> left_cmd | right_cmd -> parseexec(left_cmd) -> pipecmd(left_cmd, parsepipe(right_cmd))
+              -> parseexec(cmd)
 */
 struct cmd* parsepipe(char **ps, char *es) {
     struct cmd *cmd;
     char *q, *eq;
     if (1 == scan(ps, es, "|", &q, &eq)) {
-        // fprintf(2, "pipe cmd.\n");
         cmd = parseexec(&q, eq);
         (*ps)++;
         cmd = pipecmd(cmd, parsepipe(ps, es));
     } else {
-        // fprintf(2, "not pipe cmd.\n");
         cmd = parseexec(&q, eq);
     }
     return cmd;
@@ -216,8 +232,8 @@ struct cmd* parseexec(char **ps, char *es){
         }
 
         cmd->argv[argc] = copy(q, eq);
-        // fprintf(2, "argv %d: %s\n",argc, cmd->argv[argc]);
         argc++;
+
         if(argc >= MAXARGS) {
             fprintf(2, "too many args.\n");
             exit(-1);
@@ -229,6 +245,11 @@ struct cmd* parseexec(char **ps, char *es){
     return ret;
 }
 
+/*
+    cmd > file ->                                       -> redircmd(cmd, file)
+                  cmd -> parseexec(cmd) -> execcmd(cmd)
+                  file -> file
+*/
 struct cmd* parseredirs(struct cmd *cmd, char **ps, char *es) {
     int token;
     char *q, *eq;
@@ -255,7 +276,7 @@ struct cmd* parseredirs(struct cmd *cmd, char **ps, char *es) {
 }
 
 /*
-    create pipecmd and convert to cmd
+    create pipecmd and convert it to cmd
 */
 struct cmd *pipecmd(struct cmd *left, struct cmd *right) {
     if (++cmd_index[PIPE] >= MAXCMDS) {
@@ -271,6 +292,9 @@ struct cmd *pipecmd(struct cmd *left, struct cmd *right) {
     return (struct cmd*) cmd;
 }
 
+/*
+    create execcmd and convert it to cmd
+*/
 struct cmd *execcmd(void) {
     if (++cmd_index[EXEC] >= MAXCMDS) {
         fprintf(2, "Too many commands.\n");
@@ -283,6 +307,9 @@ struct cmd *execcmd(void) {
     return (struct cmd*)cmd;
 }
 
+/*
+    create redircmd and convert it to cmd
+*/
 struct cmd *redircmd(struct cmd *subcmd, char *file, int type, int mode, int fd) {
     if (++cmd_index[REDIR] >= MAXCMDS) {
         fprintf(2, "Too many commands.\n");
@@ -306,6 +333,9 @@ void init_index() {
     }
 }
 
+/*
+    make a copy of a string
+*/
 char *copy(char *s, char *es) {
     int n = es-s;
     if (n > MAXBUF) {
