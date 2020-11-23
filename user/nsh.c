@@ -2,19 +2,15 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 #include "assert.h"
-#include "string.h"
-#include "unistd.h"
-#include "stdlib.h"
 
 #define MAXARGS 10  // 限制参数最大数量
+#define MAXCMDS 10
 #define MAXBUF 100
 
 // Parsed command representationss
-#define EXEC  1
-#define REDIR 2
-#define PIPE  3
-#define LIST  4
-#define BACK  5
+#define EXEC  0
+#define REDIR 1
+#define PIPE  2
 
 char whitespace[] = " \t\r\n\v";
 char symbols[] = "<|>";
@@ -44,18 +40,21 @@ struct pipecmd {
   struct cmd *right;
 };
 
-struct pipecmd mypipecmd;
-struct execcmd myexeccmd;
-struct redircmd myredircmd;
-char mybuf[100];
+struct cmd mycmd[MAXCMDS];
+struct pipecmd mypipecmd[MAXCMDS];
+struct execcmd myexeccmd[MAXCMDS];
+struct redircmd myredircmd[MAXCMDS];
+int cmd_index[MAXCMDS];
+char mybuf[MAXBUF];
+char cmdbuff[MAXBUF];
+int index = 0;
 
 int getcmd(char *buf, int nbuf);
 void runcmd(struct cmd *cmd);
 
 struct cmd *pipecmd(struct cmd *left, struct cmd *right);
 struct cmd *execcmd(void);
-struct cmd *redircmd(struct cmd *subcmd, char *file, int type);
-
+struct cmd *redircmd(struct cmd *subcmd, char *file, int type, int mode, int fd);
 /*
     parse cmd -> parse pipe -> parse exec -> parse redirs
 */
@@ -64,55 +63,20 @@ struct cmd *parsepipe(char **ps, char *es);
 struct cmd *parseexec();
 struct cmd *parseredirs();
 
+void init_index();
 char *copy(char *s, char *es);
+char* mystrncpy(char *s, const char *t, int n);
 int scan(char **ps, char *es, const char *tokens, char **q, char **eq);
 int peek(char **ps, char *es, char *tokens);
 int gettoken(char **ps, char *es, char **q, char **eq);
 
-
-char* searchfile(char *file, int len, char* name, int mode){
-	// PATH
-	char* env= getenv("PATH");
-	char* end= env + strlen(env);
-	char *spath, *epath;
-	while( scan(&env, end, ":", &spath, &epath)){
-		env++;
-		if(spath == epath){
-			break;
-		}
-		memset(file, 0, len);
-		if(epath-spath+strlen(name)+2 > len){ // 1 for '/', 1 for '\0'
-			fprintf(2, "file abs path too long\n");
-		}
-		strncat(file, spath, epath-spath);
-		strncat(file, "/", 1);
-		strncat(file, name, strlen(name));
-		if( 0 == access(file, mode) ){
-			return file;
-		}
-	}
-	// PWD
-	env= getenv("PWD");
-	end= env + strlen(env);
-	memset(file, 0, len);
-	if(end-env+strlen(name)+2 > len){ // 1 for '/', 1 for '\0'
-		fprintf(2, "file abs path too long\n");
-	}
-	strncat(file, env, end-env);
-	strncat(file, "/", 1);
-	strncat(file, name, strlen(name));
-	if( 0 == access(file, mode) ){
-		return file;
-	}
-
-	return NULL;
-}
 
 /*
     get cmd -> cd? -> fork -> parse cmd -> run cmd -> get cmd
                    -> cd
 */
 int main(void) {
+    init_index();
     static char buf[MAXBUF];
     int fd;
 
@@ -152,26 +116,22 @@ void runcmd(struct cmd *cmd) {
     struct redircmd *rcmd;
 
     if (cmd == 0) exit(0);
+    // fprintf(2, "cmd type: %d\n", cmd->type);
 
     switch(cmd->type) {
         default:
             fprintf(2, "error cmd.\n");
             exit(-1);
         case EXEC:
-            fprintf(2, "exec command.\n");
             ecmd = (struct execcmd*)cmd;
-            char abscmd[MAXARGS];
-            if (NULL == searchfile(abscmd, MAXARGS, ecmd->argv[0], F_OK|R_OK|X_OK)) {
-                fprintf(2, "file not exist or permission denied.\n");
-                exit(-1);
-            }
-            fprintf(2, "command :%c.\n", ecmd->argv[2]);
+
             if (ecmd->argv[0] == 0) exit(-1);
             if (-1 == exec(ecmd->argv[0], ecmd->argv)) fprintf(2, "exec %s failed.\n", ecmd->argv[0]);
             break;
         case REDIR:
             rcmd = (struct redircmd*)cmd;
             close(rcmd->fd);
+
             if (open(rcmd->file, rcmd->mode) < 0) {
                 fprintf(2, "open %s failed.\n", rcmd->file);
                 exit(-1);
@@ -201,7 +161,6 @@ void runcmd(struct cmd *cmd) {
             wait(0);
             break;
     }
-
     exit(0);
 }
 
@@ -225,13 +184,14 @@ struct cmd* parsepipe(char **ps, char *es) {
     struct cmd *cmd;
     char *q, *eq;
     if (1 == scan(ps, es, "|", &q, &eq)) {
+        // fprintf(2, "pipe cmd.\n");
         cmd = parseexec(&q, eq);
         (*ps)++;
         cmd = pipecmd(cmd, parsepipe(ps, es));
     } else {
+        // fprintf(2, "not pipe cmd.\n");
         cmd = parseexec(&q, eq);
     }
-
     return cmd;
 }
 
@@ -256,17 +216,16 @@ struct cmd* parseexec(char **ps, char *es){
         }
 
         cmd->argv[argc] = copy(q, eq);
+        // fprintf(2, "argv %d: %s\n",argc, cmd->argv[argc]);
         argc++;
         if(argc >= MAXARGS) {
             fprintf(2, "too many args.\n");
             exit(-1);
         }
-
+        
         ret = parseredirs(ret, ps, es);
     }
-
     cmd->argv[argc] = 0;
-
     return ret;
 }
 
@@ -283,10 +242,12 @@ struct cmd* parseredirs(struct cmd *cmd, char **ps, char *es) {
 
         switch(token) {
             case '<':
-                cmd = redircmd(cmd, copy(q, eq), REDIR);
+                // fprintf(2, "< cmd\n");
+                cmd = redircmd(cmd, copy(q, eq), REDIR, O_RDONLY, 0);
                 break;
             case '>':
-                cmd = redircmd(cmd, copy(q, eq), REDIR);
+                // fprintf(2, "> cmd\n");
+                cmd = redircmd(cmd, copy(q, eq), REDIR, O_WRONLY|O_CREATE, 1);
                 break;
         }
     }
@@ -297,31 +258,52 @@ struct cmd* parseredirs(struct cmd *cmd, char **ps, char *es) {
     create pipecmd and convert to cmd
 */
 struct cmd *pipecmd(struct cmd *left, struct cmd *right) {
-    struct pipecmd *cmd = &mypipecmd;
+    if (++cmd_index[PIPE] >= MAXCMDS) {
+        fprintf(2, "Too many commands.\n");
+        exit(-1);
+    }
+    struct pipecmd *cmd = &mypipecmd[cmd_index[PIPE]];
+
     cmd->type = PIPE;
     cmd->left = left;
     cmd->right = right;
+
     return (struct cmd*) cmd;
 }
 
 struct cmd *execcmd(void) {
-    struct execcmd *cmd = &myexeccmd;
+    if (++cmd_index[EXEC] >= MAXCMDS) {
+        fprintf(2, "Too many commands.\n");
+        exit(-1);
+    }
+    struct execcmd *cmd = &myexeccmd[cmd_index[EXEC]];
 
     cmd->type = EXEC;
     
     return (struct cmd*)cmd;
 }
 
-struct cmd *redircmd(struct cmd *subcmd, char *file, int type) {
-    struct redircmd *cmd = &myredircmd;
+struct cmd *redircmd(struct cmd *subcmd, char *file, int type, int mode, int fd) {
+    if (++cmd_index[REDIR] >= MAXCMDS) {
+        fprintf(2, "Too many commands.\n");
+        exit(-1);
+    }
+    struct redircmd *cmd = &myredircmd[cmd_index[REDIR]];
 
     cmd->type = type;
     cmd->cmd = subcmd;
     cmd->file = file;
-    cmd->mode = (type == '<') ? O_RDONLY: O_WRONLY|O_CREATE;
-    cmd->fd = (type == '<') ? 0: 1;
+    cmd->mode = mode;
+    cmd->fd = fd;
 
     return (struct cmd*)cmd;
+}
+
+void init_index() {
+    index = 0;
+    for(int i = 0; i < 3; i++) {
+        cmd_index[i] = -1;
+    }
 }
 
 char *copy(char *s, char *es) {
@@ -330,10 +312,25 @@ char *copy(char *s, char *es) {
         fprintf(2, "too longer.\n");
         exit(-1);
     }
-    char *c = mybuf;
-    assert(c);
-    c[n] = 0;
+
+    char *c = &cmdbuff[index];
+    mystrncpy(c, s, n);
+
+    index += n;
+    cmdbuff[index] = '\0';
+    index++;
     return c;
+
+}
+
+char* mystrncpy(char *s, const char *t, int n)
+{
+  char *os;
+
+  os = s;
+  while(n-- > 0 && (*s++ = *t++) != 0);
+  while(n-- > 0) *s++ = 0;
+  return os;
 }
 
 /*
