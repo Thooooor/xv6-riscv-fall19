@@ -30,7 +30,6 @@ void kinit()
   char *lockname = "kmem 0";
   for (int i = 0; i < NCPU; i++) {
     lockname[5] = '0' + i;
-    printf("init cpu: %s.\n", lockname);
     initlock(&kmems[i].lock, lockname);
   }
   freerange(end, (void*)PHYSTOP);
