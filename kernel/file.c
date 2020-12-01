@@ -16,7 +16,6 @@
 struct devsw devsw[NDEV];
 struct {
   struct spinlock lock;
-  struct file file[NFILE];
 } ftable;
 
 void
@@ -29,15 +28,12 @@ fileinit(void)
 struct file*
 filealloc(void)
 {
-  struct file *f;
-
+  struct file *f  = (struct file*)bd_malloc(sizeof(struct file));
   acquire(&ftable.lock);
-  for(f = ftable.file; f < ftable.file + NFILE; f++){
-    if(f->ref == 0){
-      f->ref = 1;
-      release(&ftable.lock);
-      return f;
-    }
+  if (f) {
+    f->ref = 1;
+    release(&ftable.lock);
+    return f;
   }
   release(&ftable.lock);
   return 0;
