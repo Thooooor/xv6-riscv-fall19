@@ -28,9 +28,10 @@ fileinit(void)
 struct file*
 filealloc(void)
 {
-  struct file *f  = (struct file*)bd_malloc(sizeof(struct file));
   acquire(&ftable.lock);
+  struct file *f  = bd_malloc(sizeof(struct file));
   if (f) {
+    memset(f, 0, sizeof(struct file));
     f->ref = 1;
     release(&ftable.lock);
     return f;
@@ -76,6 +77,8 @@ fileclose(struct file *f)
     iput(ff.ip);
     end_op(ff.ip->dev);
   }
+
+  bd_free(f);
 }
 
 // Get metadata about file f.
