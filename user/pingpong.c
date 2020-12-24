@@ -8,22 +8,22 @@
 char buf[BUFSZ];
 
 int main(int argc, char *argv[]) {
-    if (argc != 1) {
+    if (argc != 1) {    // 判断参数数量
         printf("Please don't add any PARAMTERS!\n");
     } else {
         int p1[2], p2[2];
         int pid, child_pid, parent_pid;
-
+        // 创建两个管道
         if (pipe(p1) != 0 || pipe(p2) != 0) {
             printf("Pipe failed.\n");
             exit();
         }
-
+        // 创建子进程
         if ((pid = fork()) < 0 ) {
             printf("Fork error!\n");
             exit();
         } 
-
+        // 子进程
         if (pid == 0) {
             child_pid = getpid();
             read(p1[0], buf, sizeof(buf));
@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
             write(p2[1], "pong", 4);
             close(p2[1]);
             exit();
-        } else {
+        } else {    // 父进程
             parent_pid = getpid();
             write(p1[1], "ping", 4);
             close(p1[1]);
@@ -42,6 +42,5 @@ int main(int argc, char *argv[]) {
             exit();
         }
     }
-    
     exit();
 }

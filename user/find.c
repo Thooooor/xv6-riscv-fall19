@@ -68,24 +68,23 @@ void find(char *path, char *name){
     int fd;
     struct dirent de;
     struct stat st;
-
+    // 打开当前路径的文件
     if((fd = open(path, 0)) < 0){
         fprintf(2, "find: cannot open %s\n", path);
         return;
     }
-
+    // 将文件转换为结构体
     if(fstat(fd, &st) < 0){
         fprintf(2, "find: cannot stat %s\n", path);
         close(fd);
         return;
     }
-
+    // 判断当前文件类型是文件还是文件夹
     switch(st.type){
-        case T_FILE:
+        case T_FILE:  // 判断名字是否匹配
             if(match(name, fmtname(path)))
             printf("%s\n", path);
             break;
-
         case T_DIR: {
             if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf) {
                 printf("find: path too long\n");
@@ -94,6 +93,7 @@ void find(char *path, char *name){
             strcpy(buf, path);
             p = buf+strlen(buf);
             *p++ = '/';
+            // 对文件夹下的文件/文件夹依次进行判断
             while(read(fd, &de, sizeof(de)) == sizeof(de)) {
                 if(de.inum == 0)
                     continue;
@@ -106,7 +106,7 @@ void find(char *path, char *name){
                 // avoid recursing into "." and ".."
                 if(strlen(de.name) == 1 && de.name[0] == '.') continue;
                 if(strlen(de.name) == 2 && de.name[0] == '.' && de.name[1] == '.') continue;
-
+                // 继续递归
                 find(buf, name);
             }
             break;
