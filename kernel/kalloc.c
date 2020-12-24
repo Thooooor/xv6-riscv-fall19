@@ -60,10 +60,10 @@ void kfree(void *pa)
   r = (struct run*)pa;
   push_off();
   int cpu_num = cpuid();
-  acquire(&kmems[cpu_num].lock);
-  r->next = kmems[cpu_num].freelist;
+  acquire(&kmems[cpu_num].lock);  // 加锁
+  r->next = kmems[cpu_num].freelist;  // 加入freelist
   kmems[cpu_num].freelist = r;
-  release(&kmems[cpu_num].lock);
+  release(&kmems[cpu_num].lock);  // 解锁
   pop_off();
 }
 
@@ -75,22 +75,22 @@ void *kalloc(void)
   struct run *r;
   push_off();
   int cpu_num = cpuid();
-  acquire(&kmems[cpu_num].lock);
+  acquire(&kmems[cpu_num].lock);  // 加锁
   r = kmems[cpu_num].freelist;
-  if (r) {
+  if (r) {  // 优先分配freelist里面的内存块
     kmems[cpu_num].freelist = r->next;
     release(&kmems[cpu_num].lock);
-  } else {
+  } else {  // 从其他CPU的freelist进行窃取
     release(&kmems[cpu_num].lock);
     for (int i = 0; i < NCPU; i++) {
       acquire(&kmems[i].lock);
       r = kmems[i].freelist;
-      if (r) {
+      if (r) { 
         kmems[i].freelist = r->next;
         release(&kmems[i].lock);
         break;
       }
-      release(&kmems[i].lock);
+      release(&kmems[i].lock);  // 解锁
     }
   }
   pop_off();
