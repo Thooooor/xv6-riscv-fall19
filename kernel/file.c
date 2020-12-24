@@ -14,6 +14,7 @@
 #include "proc.h"
 
 struct devsw devsw[NDEV];
+// 删去ftable结构体中file[NFILE]的声明
 struct {
   struct spinlock lock;
 } ftable;
@@ -25,6 +26,10 @@ fileinit(void)
 }
 
 // Allocate a file structure.
+/**
+ * 在filealloc中使用bd_malloc进行动态申请
+ * 同时每次申请之后对f进行初始化
+**/ 
 struct file*
 filealloc(void)
 {
@@ -53,6 +58,10 @@ filedup(struct file *f)
 }
 
 // Close file f.  (Decrement ref count, close when reaches 0.)
+/**
+ * 使用对应的bd_free进行释放
+ * 需要使用acquire对f->ref进行保护
+**/
 void
 fileclose(struct file *f)
 {

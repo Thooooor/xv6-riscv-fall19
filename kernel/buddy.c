@@ -43,6 +43,10 @@ int bit_isset(char *array, int index) {
 }
 
 // New! Return 1 if bit at position index in array is set to 1
+/**
+ * 通过异或操作，只用一个bit位来记录一对buddy的alloc情况
+ * 其中注意需要将index除以2
+**/
 int new_bit_isset(char *array, int index) {
   index /= 2;
   char b = array[index/8];
@@ -134,6 +138,10 @@ void *addr(int k, int bi) {
 }
 
 // allocate nbytes, but malloc won't return anything smaller than LEAF_SIZE
+/**
+ * 对alloc的set函数进行替换
+ * `set split`的函数仍然需要使用原来的`set`函数
+**/
 void *
 bd_malloc(uint64 nbytes)
 {
@@ -226,7 +234,11 @@ log2(uint64 n) {
   }
   return k;
 }
-
+ 
+/**
+ * 修改`bd_mark`函数中对alloc声明部分的函数为`new_bit_set`
+ * 对`split`的声明部分不变
+**/
 // Mark memory from [start, stop), starting at size 0, as allocated. 
 void
 bd_mark(void *start, void *stop)
@@ -333,7 +345,7 @@ bd_init(void *base, void *end) {
   // initialize free list and allocate the alloc array for each size k
   for (int k = 0; k < nsizes; k++) {
     lst_init(&bd_sizes[k].free);
-    sz = sizeof(char)* ROUNDUP(NBLK(k), 16)/16;
+    sz = sizeof(char)* ROUNDUP(NBLK(k), 16)/16; // 减半分配给`struct sz_info`的空间：
     bd_sizes[k].alloc = p;
     memset(bd_sizes[k].alloc, 0, sz);
     p += sz;
@@ -360,7 +372,7 @@ bd_init(void *base, void *end) {
   
   // initialize free lists for each size k
   // available space [p, end]
-  int free = bd_initfree(p, bd_end, p, end);
+  int free = bd_initfree(p, bd_end, p, end);  // 在函数入口增加左右边界`min_left`，`max_right`，对应可用空间`[p, end]`。
 
   // check if the amount that is free is what we expect
   if(free != BLK_SIZE(MAXSIZE)-meta-unavailable) {
